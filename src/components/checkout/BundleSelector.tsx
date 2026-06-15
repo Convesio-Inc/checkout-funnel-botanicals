@@ -1,51 +1,5 @@
 import { useState } from "react";
-
-export type Bundle = {
-  id: "one-bottle" | "two-bottle" | "three-bottle";
-  bottleCount: number;
-  supplyLabel: string;
-  freeBonusBottles: number;
-  pricePerBottle: number;
-  totalAmountMinor: number;
-  originalAmountMinor: number;
-  savingsMinor?: number;
-  isMostChosen?: boolean;
-  mostChosenPercent?: number;
-};
-
-export const BUNDLES: Bundle[] = [
-  {
-    id: "three-bottle",
-    bottleCount: 3,
-    supplyLabel: "90-day supply + 2 free",
-    freeBonusBottles: 2,
-    pricePerBottle: 33.0,
-    totalAmountMinor: 9900,
-    originalAmountMinor: 14700,
-    savingsMinor: 4800,
-    isMostChosen: true,
-    mostChosenPercent: 71,
-  },
-  {
-    id: "two-bottle",
-    bottleCount: 2,
-    supplyLabel: "60-day supply",
-    freeBonusBottles: 0,
-    pricePerBottle: 39.5,
-    totalAmountMinor: 7900,
-    originalAmountMinor: 9800,
-    savingsMinor: 1900,
-  },
-  {
-    id: "one-bottle",
-    bottleCount: 1,
-    supplyLabel: "30-day supply",
-    freeBonusBottles: 0,
-    pricePerBottle: 49.0,
-    totalAmountMinor: 4900,
-    originalAmountMinor: 4900,
-  },
-];
+import { type Bundle, BUNDLES } from "./bundles";
 
 function formatDollars(minor: number) {
   return `$${(minor / 100).toFixed(2)}`;
@@ -73,7 +27,16 @@ function BundleCard({ bundle, selected, onSelect }: BundleCardProps) {
     <div
       data-section="bundle-card"
       data-bundle-id={bundle.id}
+      role="radio"
+      aria-checked={selected}
+      tabIndex={0}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === " " || e.key === "Enter") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       className={`relative cursor-pointer rounded-[10px] border px-4 py-3.5 transition-colors ${
         selected
           ? "border-[2.5px] border-[#1a3028] bg-[#f7fdf8]"
@@ -202,12 +165,8 @@ export function BundleSelector({ value, onChange }: BundleSelectorProps) {
         {/* TODO: subscription flow */}
         <button
           type="button"
-          onClick={() => setTab("subscribe")}
-          className={`flex-1 text-center py-2 rounded-[6px] text-[12px] font-semibold transition-colors flex items-center justify-center gap-1.5 ${
-            tab === "subscribe"
-              ? "bg-[#1a3028] text-white"
-              : "text-[#666] hover:text-[#333]"
-          }`}
+          disabled
+          className="flex-1 text-center py-2 rounded-[6px] text-[12px] font-semibold transition-colors flex items-center justify-center gap-1.5 opacity-50 cursor-not-allowed text-[#666]"
         >
           Subscribe &amp; save
           <span className="bg-[#c8620a] text-white text-[9px] font-bold px-1.5 py-[1px] rounded-[3px]">
@@ -228,7 +187,11 @@ export function BundleSelector({ value, onChange }: BundleSelectorProps) {
       </div>
 
       {/* Bundle cards */}
-      <div className="flex flex-col gap-2">
+      <div
+        role="radiogroup"
+        aria-label="Select bundle"
+        className="flex flex-col gap-2"
+      >
         {BUNDLES.map((bundle) => (
           <BundleCard
             key={bundle.id}
