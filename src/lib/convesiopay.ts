@@ -21,7 +21,6 @@
 
 export interface ConvesioPayConfig {
   apiKey: string;
-  clientKey: string;
   environment: ConvesioPayEnvironment;
 }
 

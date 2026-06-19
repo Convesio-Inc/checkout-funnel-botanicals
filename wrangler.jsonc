@@ -32,18 +32,14 @@
 		"nodejs_compat"
 	],
 	"secrets": {
-		"required": [
-			"CPAY_CLIENT_KEY",
-			"CPAY_API_KEY",
-			"CPAY_SECRET",
-			"CPAY_INTEGRATION",
-			"AUTH_SALT",
-			"GOOGLE_OAUTH_CLIENT_ID",
-			"GOOGLE_OAUTH_CLIENT_SECRET",
-			"SENDGRID_API_KEY",
-			"CARTROVER_API_USER",
-			"CARTROVER_API_KEY"
-		]
+		// Temporarily emptied to bootstrap the FIRST deploy: a brand-new Worker
+		// has no version yet, so `wrangler secret bulk` / `secret put` can't run
+		// until after an initial deploy — but a non-empty `required` list blocks
+		// that deploy. Once all secrets are set on the deployed Worker, restore:
+		//   "CPAY_API_KEY", "CPAY_SECRET", "CPAY_INTEGRATION",
+		//   "AUTH_SALT", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
+		//   "SENDGRID_API_KEY", "CARTROVER_API_USER", "CARTROVER_API_KEY"
+		"required": []
 	},
 	/**
 	 * Smart Placement

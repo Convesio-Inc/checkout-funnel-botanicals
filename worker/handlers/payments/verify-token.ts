@@ -8,7 +8,6 @@ import {
   type AnyLineItem,
 } from './aggregate-items';
 import { CPAY_STATUS_SCHEDULED } from './payment-status';
-import { requireClientKey } from './shared';
 
 interface VerifyTokenBody {
   token?: string;
@@ -27,12 +26,9 @@ export async function handleVerifyToken(
     );
   }
 
-  const clientKey = requireClientKey(env);
-  if (clientKey instanceof Response) return clientKey;
-
   let payload;
   try {
-    payload = await verifyCheckoutToken(token, clientKey);
+    payload = await verifyCheckoutToken(token, env.CPAY_SECRET);
   } catch (err) {
     return json(
       {

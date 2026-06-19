@@ -55,11 +55,11 @@ function ensureSelector(el: HTMLElement): string {
   return `#${el.id}`;
 }
 
-/** Component options the caller may customize. `environment` + `clientKey` are
- *  injected from `/config`, so they are omitted here. */
+/** Component options the caller may customize. `environment` is
+ *  injected from `/config`, so it is omitted here. */
 export type ConvesioPayCheckoutOptions = Omit<
   ConvesioPayComponentOptions,
-  "environment" | "clientKey"
+  "environment"
 >;
 
 export interface UseConvesioPayCheckoutResult {
@@ -112,7 +112,6 @@ export function useConvesioPayCheckout(
       const cpay = getConvesioPayInstance(config.apiKey);
       const instance = cpay.component({
         environment: config.environment,
-        clientKey: config.clientKey,
         ...options,
       });
       instance.mount(ensureSelector(containerRef.current));

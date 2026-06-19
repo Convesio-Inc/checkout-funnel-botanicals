@@ -9,7 +9,6 @@ import {
   type PaymentRequestBody,
   paymentsEndpoint,
   REQUIRED_FIELDS,
-  requireClientKey,
   requireSecret,
   resolveEnvironment,
   singlePaymentEndpoint,
@@ -134,9 +133,6 @@ export async function handlePayments(
   const secret = requireSecret(env);
   if (secret instanceof Response) return secret;
 
-  const clientKey = requireClientKey(env);
-  if (clientKey instanceof Response) return clientKey;
-
   const environment = resolveEnvironment(env);
   const origin = new URL(request.url).origin;
 
@@ -152,7 +148,7 @@ export async function handlePayments(
         customer_id: '',
         status: 'AwaitingAction',
       },
-      clientKey,
+      env.CPAY_SECRET,
     );
   } catch (err) {
     return json(
@@ -297,7 +293,7 @@ export async function handlePayments(
         customer_id: customerIdFromUpstream ?? '',
         status: upstreamStatus,
       },
-      clientKey,
+      env.CPAY_SECRET,
     );
   } catch (err) {
     return json(

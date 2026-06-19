@@ -5,7 +5,6 @@ import { signCheckoutToken } from '../../jwt';
 import { json, readJson } from '../common';
 import { applyParsedUpstreamToPaymentRow } from './apply-upstream-to-payment';
 import {
-  requireClientKey,
   requireSecret,
   resolveEnvironment,
   singlePaymentEndpoint,
@@ -56,9 +55,6 @@ export async function handleIssueToken(
 
   const secret = requireSecret(env);
   if (secret instanceof Response) return secret;
-
-  const clientKey = requireClientKey(env);
-  if (clientKey instanceof Response) return clientKey;
 
   const environment = resolveEnvironment(env);
 
@@ -129,7 +125,7 @@ export async function handleIssueToken(
         customer_id: parsed.customerId ?? parsed.customer?.id ?? '',
         status: statusForToken,
       },
-      clientKey,
+      env.CPAY_SECRET,
     );
   } catch (err) {
     return json(

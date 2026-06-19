@@ -6,7 +6,6 @@ declare global {
 
   interface ConvesioPayComponentOptions {
     environment: ConvesioPayEnvironment;
-    clientKey: string;
     customerEmail?: string;
     integration?: string;
     theme?: ConvesioPayTheme;

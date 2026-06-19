@@ -5,7 +5,7 @@
  * payment and appends it to the `redirectUrl` pointing at `/thank-you`. The
  * thank-you page then calls `/verify-token` to read the payload back.
  *
- * The signing secret is the public `CPAY_CLIENT_KEY` — all data in the payload
+ * The signing secret is the `CPAY_SECRET` secret — all data in the payload
  * is already visible in the upstream payment response, so the token exists
  * purely to carry it through a browser redirect with a tamper-evident wrapper.
  * -----------------------------------------------------------------------------

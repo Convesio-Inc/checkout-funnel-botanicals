@@ -26,7 +26,7 @@ Built with **React 19**, **TypeScript**, **Vite**, **Tailwind CSS v4** and **sha
   - [Environment Variables](#environment-variables)
   - [Testing the Checkout](#testing-the-checkout)
   - [Customization](#customization)
-    - [1. Copy, prices and images — `src/content/config.ts`](#1-copy-prices-and-images--srccontentconfigts)
+    - [1. Copy, prices and images — edit the component directly](#1-copy-prices-and-images--edit-the-component-directly)
     - [2. Brand colors — `src/index.css`](#2-brand-colors--srcindexcss)
     - [3. Layout and behavior — section components](#3-layout-and-behavior--section-components)
   - [Local Development](#local-development)
@@ -160,8 +160,7 @@ From your Convesio console, create a new Static Site pointing at your forked rep
 1. Log in to the [ConvesioPay Sandbox console](https://dev.convesiopay.com/) (or [ConvesioPay's Live Console](https://convesiopay.com/) for live environments).
 2. Navigate to **Advanced Settings → [Connected Integrations](https://dev.convesiopay.com/advanced-settings/connected-integrations)** and click **CREATE NEW INTEGRATION**. Give it a name of your choice — you'll need it later as `CPAY_INTEGRATION`.
 3. Copy the **integration secret key** that gets generated. This will be your `CPAY_SECRET`.
-4. Under **Client Keys**, paste your Static Site URL and click **Generate Client Key**. Copy it — this will be your `CPAY_CLIENT_KEY`.
-5. Go to **Advanced Settings → [Get Your API Key](https://dev.convesiopay.com/advanced-settings/api-key)** and copy your API key. This will be your `CPAY_API_KEY`.
+4. Go to **Advanced Settings → [Get Your API Key](https://dev.convesiopay.com/advanced-settings/api-key)** and copy your API key. This will be your `CPAY_API_KEY`.
 
 ### 5. Set up Google OAuth
 
@@ -180,7 +179,6 @@ In your Convesio Static Site settings, add every secret listed in [Environment V
 ```bash
 # ConvesioPay
 CPAY_INTEGRATION=...
-CPAY_CLIENT_KEY=...
 CPAY_SECRET=...
 CPAY_API_KEY=...
 
@@ -214,7 +212,6 @@ All credentials are required. They are injected at runtime into the Cloudflare W
 | Variable           | Type   | Description                                                                                 |
 | ------------------ | ------ | ------------------------------------------------------------------------------------------- |
 | `CPAY_INTEGRATION` | secret | Name of the integration you created in the ConvesioPay console.                             |
-| `CPAY_CLIENT_KEY`  | secret | Public client key bound to your Static Site URL. Sent to the browser to initialize the SDK. |
 | `CPAY_SECRET`      | secret | Server-side integration secret. **Never expose this client-side.**                          |
 | `CPAY_API_KEY`     | secret | ConvesioPay API key used for server-to-server calls.                                        |
 | `CPAY_ENVIRONMENT` | var    | `"test"` (default) or `"live"`. Configured in `wrangler.jsonc`.                             |
@@ -370,7 +367,6 @@ Copy `.env.example` to `.dev.vars` and fill in all credentials. The Worker reads
 ```bash
 # ConvesioPay
 CPAY_INTEGRATION=...
-CPAY_CLIENT_KEY=...
 CPAY_SECRET=...
 CPAY_API_KEY=...
 
@@ -512,16 +508,12 @@ When you're confident the checkout works end-to-end in sandbox:
 - **Never hardcode credentials.** All keys must live in environment variables — never in frontend code or committed files. `.dev.vars` is git-ignored for this reason.
 - **Generate a strong `AUTH_SALT`.** Use `openssl rand -hex 32` and treat it like a private key. Rotating it invalidates all active sessions.
 - **Never return the `env` object** from the Worker's `fetch` function on any API endpoint — doing so would expose every secret.
-- **Use client keys scoped to your domain.** The `CPAY_CLIENT_KEY` is bound to the Static Site URL you registered in the ConvesioPay console.
 - **Keep Google OAuth redirect URIs tight.** Only add the exact callback path (`/auth/google/callback`) for domains you control.
 - **Keep dependencies up to date** with `npm audit` and regular upgrades.
 
 ---
 
 ## Troubleshooting
-
-**The checkout iframe doesn't load.**
-Check the browser console. Most commonly `CPAY_CLIENT_KEY` is missing, incorrect, or not whitelisted for your Static Site URL.
 
 **I get a 401 / 403 from `/payments`.**
 Verify `CPAY_SECRET`, `CPAY_API_KEY`, and `CPAY_INTEGRATION` are set as Worker secrets (not plain vars) and match the integration you're targeting.

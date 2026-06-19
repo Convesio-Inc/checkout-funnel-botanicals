@@ -12,7 +12,7 @@
     "cf-typegen": "wrangler types",
     "db:migrate": "wrangler d1 migrations apply fulfillment-checkout-v2 --local",
     "db:migrate:remote": "wrangler d1 migrations apply fulfillment-checkout-v2 --remote",
-    "add-envs": "wrangler secret put CPAY_CLIENT_KEY && wrangler secret put CPAY_API_KEY && wrangler secret put CPAY_SECRET && wrangler secret put CPAY_INTEGRATION"
+    "add-envs": "wrangler secret put CPAY_API_KEY && wrangler secret put CPAY_SECRET && wrangler secret put CPAY_INTEGRATION"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.8",

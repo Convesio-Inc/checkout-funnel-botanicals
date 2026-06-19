@@ -94,18 +94,3 @@ export function requireSecret(env: Env): Response | string {
   }
   return secret;
 }
-
-export function requireClientKey(env: Env): Response | string {
-  const clientKey = env.CPAY_CLIENT_KEY?.trim();
-  if (!clientKey) {
-    return json(
-      {
-        error: true,
-        message:
-          'Worker is missing CPAY_CLIENT_KEY. Set it via `wrangler secret put` or your `.env` / `.dev.vars`.',
-      },
-      { status: 500 },
-    );
-  }
-  return clientKey;
-}

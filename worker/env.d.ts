@@ -6,7 +6,6 @@
  */
 interface Env {
   DB: D1Database;
-  CPAY_CLIENT_KEY: string;
   CPAY_API_KEY: string;
   CPAY_SECRET: string;
   CPAY_INTEGRATION: string;
