@@ -43,15 +43,9 @@ import type {
 } from "@/hooks/useCheckoutPayment";
 
 function PaymentResultDetails({ result }: { result: PaymentResponse | null }) {
-  if (typeof result?.order_id !== "number" && !result?.id) return null;
+  if (!result?.id) return null;
   return (
     <dl className="mx-auto grid max-w-full grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1 text-xs">
-      {typeof result?.order_id === "number" && (
-        <>
-          <dt className="text-muted-foreground">Order</dt>
-          <dd className="font-mono break-all">#{result.order_id}</dd>
-        </>
-      )}
       {result?.id && (
         <>
           <dt className="text-muted-foreground">Payment ID</dt>
