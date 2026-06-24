@@ -1,1 +1,0 @@
-export { handleGoogleStart } from './shared';

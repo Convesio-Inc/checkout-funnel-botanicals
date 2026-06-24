@@ -5,17 +5,10 @@
  * `wrangler types`), while still giving us typed `env.CPAY_*` access.
  */
 interface Env {
-  DB: D1Database;
   CPAY_API_KEY: string;
   CPAY_SECRET: string;
   CPAY_INTEGRATION: string;
   CPAY_ENVIRONMENT?: ConvesioPayEnvironmentValue;
-  AUTH_SALT: string;
-  GOOGLE_OAUTH_CLIENT_ID: string;
-  GOOGLE_OAUTH_CLIENT_SECRET: string;
-  SENDGRID_API_KEY: string;
-  CARTROVER_API_USER: string;
-  CARTROVER_API_KEY: string;
 }
 
 type ConvesioPayEnvironmentValue = "test" | "live";

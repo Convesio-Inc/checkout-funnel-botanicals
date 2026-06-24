@@ -1,1 +1,0 @@
-export { handleGoogleCallback } from './shared';
