@@ -8,21 +8,7 @@
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-04-22",
 	"assets": {
-		"not_found_handling": "single-page-application",
-		"run_worker_first": [
-			"/auth/*",
-			"/config",
-			"/payments",
-			"/upsell-payment",
-			"/list-payments",
-			"/list-orders",
-			"/verify-token",
-			"/issue-token",
-			"/poll-payment",
-			"/search-orders",
-			"/users",
-			"/users/*"
-		]
+		"not_found_handling": "single-page-application"
 	},
 	"observability": {
 		"enabled": true
@@ -32,14 +18,7 @@
 		"nodejs_compat"
 	],
 	"secrets": {
-		// Temporarily emptied to bootstrap the FIRST deploy: a brand-new Worker
-		// has no version yet, so `wrangler secret bulk` / `secret put` can't run
-		// until after an initial deploy — but a non-empty `required` list blocks
-		// that deploy. Once all secrets are set on the deployed Worker, restore:
-		//   "CPAY_API_KEY", "CPAY_SECRET", "CPAY_INTEGRATION",
-		//   "AUTH_SALT", "GOOGLE_OAUTH_CLIENT_ID", "GOOGLE_OAUTH_CLIENT_SECRET",
-		//   "SENDGRID_API_KEY", "CARTROVER_API_USER", "CARTROVER_API_KEY"
-		"required": []
+		"required": ["CPAY_API_KEY", "CPAY_SECRET", "CPAY_INTEGRATION"]
 	},
 	/**
 	 * Smart Placement
@@ -60,22 +39,5 @@
 	 */
 	"vars": {
 		"CPAY_ENVIRONMENT": "test"
-	},
-	/**
-	 * Service Bindings (communicate between multiple Workers)
-	 * https://developers.cloudflare.com/workers/wrangler/configuration/#service-bindings
-	 */
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "fulfillment-checkout-v2",
-			"database_id": "6bbbf02d-4b24-4f09-80d2-f53866c8e2e6",
-			"migrations_dir": "worker/db/migrations"
-		}
-	],
-	"triggers": {
-		"crons": [
-			"0 */2 * * *"
-		]
 	}
 }

@@ -49,7 +49,6 @@ export interface Address {
 }
 
 export interface LineItem {
-  sku: string;
   description: string;
   quantity: number;
   amountIncludingTax: number;
@@ -70,30 +69,8 @@ export interface PaymentActionRequired {
   redirectUrl?: string;
 }
 
-/**
- * Raw response body from the worker's `POST /payments` endpoint.
- *
- * Three mutually exclusive shapes arrive in practice:
- *
- *  1. **3DS challenge** — `actionRequired.redirectUrl` is set; `id` and
- *     `order_id` are present so the hook can stash them in sessionStorage
- *     before navigating to the bank's hosted page.
- *
- *  2. **Success / pending** — `redirectUrl` is set (the worker's pre-signed
- *     thank-you URL). `actionRequired` is absent. The hook navigates directly
- *     to this URL.
- *
- *  3. **Non-terminal status** (declined, expired, …) — neither `redirectUrl`
- *     nor `actionRequired` is set. `status` carries the raw ConvesioPay
- *     string; the hook maps it to `"failed"`.
- */
 export interface PaymentResponse {
   id?: string;
-  /** Local orders.id, returned by the worker on a successful (non-3DS)
-   *  payment. The thank-you redirect URL already carries it inside the JWT,
-   *  but it's also surfaced top-level so callers can read it without
-   *  decoding the token. */
-  order_id?: number;
   orderNumber?: string;
   status?: string;
   amount?: number;
@@ -103,14 +80,14 @@ export interface PaymentResponse {
    *  instead of surfacing the success/pending modal. */
   redirectUrl?: string;
   /** Present when ConvesioPay flags the payment for a 3DS (or similar)
-   *  challenge. The hook stashes the order id in sessionStorage and
+   *  challenge. The hook stashes the payment id in sessionStorage and
    *  navigates the user to `actionRequired.redirectUrl`; on return, the
    *  thank-you page hydrates a proper `?token=<jwt>` URL via `/issue-token`. */
   actionRequired?: PaymentActionRequired;
   [key: string]: unknown;
 }
 
-/** sessionStorage key used to bridge the 3DS challenge: we write the order
+/** sessionStorage key used to bridge the 3DS challenge: we write the payment
  *  id before navigating to the bank's challenge page, and the thank-you page
  *  reads it back on return to mint a fresh thank-you JWT. Exported so the
  *  thank-you hook can import the same constant. */
@@ -122,11 +99,21 @@ export const PENDING_PAYMENT_SESSION_KEY = "cpay_pending_payment";
 export const PENDING_PAYMENT_MAX_AGE_MS = 30 * 60 * 1000;
 
 export interface PendingPaymentSessionEntry {
-  /** Local orders.id — the primary identifier for resuming the flow. */
-  order_id: number;
-  /** cpay_id of the in-flight payment, kept for parity with what cpay may
-   *  append on the return URL. */
-  cpay_id: string;
+  payment_id: string;
+  order_number: string | null;
+  saved_at: number;
+}
+
+/** sessionStorage key holding the purchased bundle for the thank-you receipt.
+ *  Written at `pay()` time so it survives a 3DS redirect, where the issued
+ *  resume token has no line items (CPAY's lookup doesn't know our display
+ *  items). The thank-you page reads it only as a display fallback. */
+export const CHECKOUT_BUNDLE_SESSION_KEY = "cpay_checkout_bundle";
+
+export interface CheckoutBundleSessionEntry {
+  line_items: LineItem[];
+  amount: number;
+  currency: string;
   saved_at: number;
 }
 
@@ -146,9 +133,6 @@ export interface UseCheckoutPaymentResult {
   reset: () => void;
 }
 
-// Intentionally duplicated in useThankYouPayment.ts and
-// worker/handlers/payments/shared.ts — the SPA and worker bundle separately
-// so they cannot share a module. Keep all three in sync when adding statuses.
 const SUCCESS_STATUSES = new Set(["Succeeded", "Authorized"]);
 const PENDING_STATUSES = new Set(["Pending"]);
 
@@ -168,6 +152,24 @@ export function useCheckoutPayment(): UseCheckoutPaymentResult {
       setStatus("processing");
       setError(null);
       setResult(null);
+
+      // Stash the purchased bundle for the thank-you receipt. Display-only —
+      // never gates the payment, so any storage failure is swallowed.
+      try {
+        const bundleEntry: CheckoutBundleSessionEntry = {
+          line_items: payload.lineItems ?? [],
+          amount: payload.amount,
+          currency: payload.currency,
+          saved_at: Date.now(),
+        };
+        window.sessionStorage.setItem(
+          CHECKOUT_BUNDLE_SESSION_KEY,
+          JSON.stringify(bundleEntry),
+        );
+      } catch {
+        // sessionStorage disabled / quota exceeded — receipt falls back to
+        // the JWT line items or the static summary.
+      }
 
       let paymentToken: string;
       try {
@@ -212,19 +214,15 @@ export function useCheckoutPayment(): UseCheckoutPaymentResult {
 
       // 3DS handoff: ConvesioPay has flagged the payment and wants the user
       // to complete a challenge on their hosted verify-customer page. Stash
-      // the order id in sessionStorage so `/thank-you` can hydrate a JWT
+      // the payment id in sessionStorage so `/thank-you` can hydrate a JWT
       // via `/issue-token` on return, then navigate out. The processing
       // dialog is intentionally kept up — it visually covers the handoff.
-      if (
-        body?.actionRequired?.redirectUrl &&
-        body.id &&
-        typeof body.order_id === "number"
-      ) {
+      if (body?.actionRequired?.redirectUrl && body.id) {
         setResult(body);
         try {
           const entry: PendingPaymentSessionEntry = {
-            order_id: body.order_id,
-            cpay_id: body.id,
+            payment_id: body.id,
+            order_number: body.orderNumber ?? null,
             saved_at: Date.now(),
           };
           window.sessionStorage.setItem(
@@ -233,8 +231,8 @@ export function useCheckoutPayment(): UseCheckoutPaymentResult {
           );
         } catch {
           // sessionStorage disabled / quota exceeded — the SPA falls back to
-          // reading `?orderId=` from the return URL if available, so this
-          // isn't fatal.
+          // reading `?paymentId=` from the return URL if ConvesioPay appends
+          // it, so this isn't fatal.
         }
         window.location.assign(body.actionRequired.redirectUrl);
         return;

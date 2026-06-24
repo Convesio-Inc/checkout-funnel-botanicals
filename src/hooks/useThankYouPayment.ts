@@ -4,8 +4,9 @@
  * Drives the thank-you page's "is the payment done yet?" lifecycle.
  *
  * The hook accepts two inputs — a canonical `?token=<jwt>` read from the URL,
- * and an optional `orderIdHint` (either a `?orderId=` query param read from
- * the return URL or, as a fallback, a value stashed in sessionStorage by
+ * and an optional `paymentIdHint` (either a `?paymentId=` query param that
+ * ConvesioPay may append when redirecting the user back from a 3DS challenge,
+ * or — if neither is present — a value stashed in sessionStorage by
  * `useCheckoutPayment` before the 3DS handoff).
  *
  * Flow:
@@ -14,20 +15,20 @@
  *      - If the decoded payload has a `payment_id`, it's a normal thank-you
  *        token: continue with verify + poll.
  *      - If `payment_id` is empty, it's the "marker" JWT the worker pre-
- *        signed into `returnUrl` before the payments call (3DS return). The
- *        marker carries an `order_id`, which we use to mint a real thank-you
- *        JWT via `/issue-token`.
- *   2. If we need to resume, take the `order_id` from (in order): the
- *      decoded marker payload, the `orderIdHint`, or the sessionStorage
- *      bridge. POST it to `/issue-token` to mint a proper thank-you JWT,
- *      rewrite the URL to `?token=<jwt>` via `history.replaceState`, clear
- *      the sessionStorage entry, then run verify + poll as if we had a
- *      token all along.
+ *        signed into `returnUrl` before the payments call, which means we
+ *        just came back from a 3DS challenge. Fall through to step 2.
+ *   2. If we need to resume, take the `payment_id` from (in order): a
+ *      `?paymentId=` URL param, the sessionStorage bridge written by
+ *      `useCheckoutPayment`. POST it to `/issue-token` to mint a proper
+ *      thank-you JWT, rewrite the URL to `?token=<jwt>` via
+ *      `history.replaceState` (so copy-paste / refresh Just Work), clear the
+ *      sessionStorage entry, then run verify + poll as if we had a token
+ *      all along.
  *   3. If the decoded status is already terminal (Succeeded / Authorized →
  *      "succeeded", or anything else non-pending → "failed"), we're done.
  *   4. If the status is "Pending", poll `/poll-payment` every 5s with
- *      `{ order_id }` and map each response's status through the same sets.
- *      Clears the interval on terminal status or unmount.
+ *      `{ payment_id }` and map each response's status through the same
+ *      sets. Clears the interval on terminal status or unmount.
  *
  * Exposed state:
  *
@@ -40,7 +41,7 @@
  * -----------------------------------------------------------------------------
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   PENDING_PAYMENT_MAX_AGE_MS,
@@ -54,100 +55,39 @@ export type ThankYouState =
   | "succeeded"
   | "failed";
 
-export interface CheckoutTokenPayload {
-  order_id: number;
-  payment_id: string;
-  customer_id: string;
-  status: string;
-}
-
-export interface ShippingAddress {
-  houseNumberOrName: string;
-  street: string;
-  city: string;
-  stateOrProvince: string;
-  postalCode: string;
-  country: string;
-}
-
-/** Aggregated line item as stored on `orders.items` and returned by
- *  `/verify-token`. Amounts are in minor units (cents). */
-export interface OrderLineItem {
-  sku: string;
+export interface CheckoutLineItem {
   description: string;
   quantity: number;
-  amountMinor: number;
-  /** True when the line is from a deferred upsell (`scheduled` payment); not yet charged upstream. */
-  chargePending?: boolean;
+  amountIncludingTax: number;
 }
 
-/** Extra context returned by `/verify-token` alongside the decoded JWT —
- *  used by follow-up flows (e.g. the upsell modal and the receipt summary)
- *  to skip re-collecting customer + shipping info and to render the full
- *  list of items on the order. */
-export interface OrderContext {
-  order_id: number;
-  customer_email: string | null;
-  customer_name: string | null;
-  customer_phone: string | null;
-  shipping_address: ShippingAddress | null;
-  items: OrderLineItem[];
+export interface CheckoutTokenPayload {
+  payment_id: string;
+  customer_id: string;
+  order_number: string;
+  status: string;
+  amount?: number;
+  currency?: string;
+  line_items?: CheckoutLineItem[];
 }
 
 export interface UseThankYouPaymentOptions {
   /** The `?token=<jwt>` read from the URL. When present, the hook verifies
    *  it directly. */
   token: string | null;
-  /** An `order_id` found outside the JWT — either a `?orderId=` URL query
-   *  param or, as a fallback, the value stashed in sessionStorage by
-   *  `useCheckoutPayment`. The hook exchanges it for a JWT via
-   *  `/issue-token` before proceeding. */
-  orderIdHint: number | null;
+  /** A `payment_id` found outside the JWT — either a `?paymentId=` URL query
+   *  param (if ConvesioPay appends one on the 3DS return) or, as a fallback,
+   *  the value stashed in sessionStorage by `useCheckoutPayment`. The hook
+   *  exchanges it for a JWT via `/issue-token` before proceeding. */
+  paymentIdHint: string | null;
 }
 
 export interface UseThankYouPaymentResult {
   state: ThankYouState;
   payload: CheckoutTokenPayload | null;
-  context: OrderContext | null;
   error: Error | null;
-  /** Re-fetches `/verify-token` to refresh receipt line items (e.g. after a deferred upsell is queued). */
-  refreshOrderContext: () => Promise<void>;
 }
 
-type VerifyTokenResponseBody = CheckoutTokenPayload &
-  Partial<OrderContext> & {
-    error?: boolean;
-    message?: string;
-  };
-
-function orderContextFromVerifyBody(
-  body: VerifyTokenResponseBody,
-): OrderContext | null {
-  if (typeof body.order_id !== "number") return null;
-  const rawItems = Array.isArray(body.items) ? body.items : [];
-  const items: OrderLineItem[] = rawItems.map((row) => {
-    const r = row as unknown as Record<string, unknown>;
-    return {
-      sku: String(r.sku ?? ""),
-      description: String(r.description ?? ""),
-      quantity: Number(r.quantity ?? 1),
-      amountMinor: Number(r.amountMinor ?? 0),
-      chargePending: r.chargePending === true,
-    };
-  });
-  return {
-    order_id: body.order_id,
-    customer_email: body.customer_email ?? null,
-    customer_name: body.customer_name ?? null,
-    customer_phone: body.customer_phone ?? null,
-    shipping_address: body.shipping_address ?? null,
-    items,
-  };
-}
-
-// Intentionally duplicated in useCheckoutPayment.ts and
-// worker/handlers/payments/shared.ts — the SPA and worker bundle separately
-// so they cannot share a module. Keep all three in sync when adding statuses.
 const SUCCESS_STATUSES = new Set(["Succeeded", "Authorized"]);
 const PENDING_STATUSES = new Set(["Pending"]);
 
@@ -186,8 +126,8 @@ function readPendingPaymentHint(): PendingPaymentSessionEntry | null {
   if (
     !parsed ||
     typeof parsed !== "object" ||
-    typeof (parsed as { order_id?: unknown }).order_id !== "number" ||
-    !Number.isFinite((parsed as { order_id: number }).order_id)
+    typeof (parsed as { payment_id?: unknown }).payment_id !== "string" ||
+    !(parsed as { payment_id: string }).payment_id
   ) {
     return null;
   }
@@ -241,24 +181,21 @@ function promoteTokenToUrl(token: string): void {
 export function useThankYouPayment(
   options: UseThankYouPaymentOptions,
 ): UseThankYouPaymentResult {
-  const { token: initialToken, orderIdHint } = options;
-
-  const lastThankYouTokenRef = useRef<string | null>(null);
+  const { token: initialToken, paymentIdHint } = options;
 
   // The effective token may arrive synchronously (from the URL) or after a
   // `/issue-token` roundtrip. Either way, once set, the rest of the hook
   // treats it as the source of truth.
   const [state, setState] = useState<ThankYouState>(() => {
     if (initialToken) return "verifying";
-    if (orderIdHint != null) return "verifying";
+    if (paymentIdHint) return "verifying";
     if (readPendingPaymentHint()) return "verifying";
     return "failed";
   });
   const [payload, setPayload] = useState<CheckoutTokenPayload | null>(null);
-  const [context, setContext] = useState<OrderContext | null>(null);
   const [error, setError] = useState<Error | null>(() => {
     if (initialToken) return null;
-    if (orderIdHint != null) return null;
+    if (paymentIdHint) return null;
     if (readPendingPaymentHint()) return null;
     return new Error("Missing confirmation token.");
   });
@@ -266,33 +203,6 @@ export function useThankYouPayment(
   // Keep the latest payload available to the poller without re-arming the
   // effect on every status change (which would leak intervals).
   const payloadRef = useRef<CheckoutTokenPayload | null>(null);
-
-  const refreshOrderContext = useCallback(async () => {
-    const t = lastThankYouTokenRef.current;
-    if (!t) return;
-    let response: Response;
-    try {
-      response = await fetch("/verify-token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ token: t }),
-      });
-    } catch {
-      return;
-    }
-    let body: VerifyTokenResponseBody | null = null;
-    try {
-      body = await response.json();
-    } catch {
-      body = null;
-    }
-    if (!response.ok || body?.error || !body) return;
-    const next = orderContextFromVerifyBody(body);
-    if (next) setContext(next);
-  }, [setContext]);
 
   useEffect(() => {
     let cancelled = false;
@@ -318,7 +228,7 @@ export function useThankYouPayment(
             Accept: "application/json",
           },
           body: JSON.stringify({
-            order_id: current.order_id,
+            payment_id: current.payment_id,
           }),
         });
       } catch (err) {
@@ -384,11 +294,7 @@ export function useThankYouPayment(
       }
 
       let body:
-        | (CheckoutTokenPayload &
-            Partial<OrderContext> & {
-              error?: boolean;
-              message?: string;
-            })
+        | (CheckoutTokenPayload & { error?: boolean; message?: string })
         | null = null;
       try {
         body = await response.json();
@@ -410,42 +316,33 @@ export function useThankYouPayment(
       }
 
       const decoded: CheckoutTokenPayload = {
-        order_id: body.order_id,
         payment_id: body.payment_id,
         customer_id: body.customer_id,
+        order_number: body.order_number,
         status: body.status,
+        amount: body.amount,
+        currency: body.currency,
+        line_items: body.line_items,
       };
 
-      const ctx = orderContextFromVerifyBody(body as VerifyTokenResponseBody);
-      if (!ctx) {
-        setError(new Error("Invalid order context in verification response."));
-        setState("failed");
-        return;
-      }
-      setContext(ctx);
-      lastThankYouTokenRef.current = tokenToVerify;
-
       // Marker token: the worker pre-signed this into `returnUrl` before
-      // calling ConvesioPay, so we're on a 3DS return. The marker carries
-      // `order_id` but no `payment_id` (the payment didn't exist yet at
-      // signing time). Swap it for a real thank-you token via
-      // `/issue-token` so we get the latest cpay status and id.
+      // calling ConvesioPay, so we're definitely on a 3DS return. It
+      // carries no `payment_id` (the payment didn't exist yet at signing
+      // time), so we resolve one from the URL or sessionStorage and swap
+      // it for a real thank-you token via `/issue-token`.
       if (!decoded.payment_id) {
-        const orderIdToResume =
-          (typeof decoded.order_id === "number" && decoded.order_id) ||
-          orderIdHint ||
-          readPendingPaymentHint()?.order_id ||
-          null;
-        if (!orderIdToResume) {
+        const hint =
+          paymentIdHint ?? readPendingPaymentHint()?.payment_id ?? null;
+        if (!hint) {
           setError(
             new Error(
-              "Could not resolve an order id to resume verification.",
+              "Could not resolve a payment id to resume verification.",
             ),
           );
           setState("failed");
           return;
         }
-        await resumeFromOrderId(orderIdToResume);
+        await resumeFromPaymentId(hint);
         return;
       }
 
@@ -465,7 +362,7 @@ export function useThankYouPayment(
       }
     };
 
-    const resumeFromOrderId = async (orderId: number) => {
+    const resumeFromPaymentId = async (paymentId: string) => {
       let response: Response;
       try {
         response = await fetch("/issue-token", {
@@ -474,7 +371,7 @@ export function useThankYouPayment(
             "Content-Type": "application/json",
             Accept: "application/json",
           },
-          body: JSON.stringify({ order_id: orderId }),
+          body: JSON.stringify({ payment_id: paymentId }),
         });
       } catch (err) {
         if (cancelled) return;
@@ -519,9 +416,9 @@ export function useThankYouPayment(
         return;
       }
 
-      const hint = orderIdHint ?? readPendingPaymentHint()?.order_id ?? null;
+      const hint = paymentIdHint ?? readPendingPaymentHint()?.payment_id ?? null;
       if (hint) {
-        await resumeFromOrderId(hint);
+        await resumeFromPaymentId(hint);
         return;
       }
 
@@ -534,7 +431,7 @@ export function useThankYouPayment(
       cancelled = true;
       stopPolling();
     };
-  }, [initialToken, orderIdHint]);
+  }, [initialToken, paymentIdHint]);
 
-  return { state, payload, context, error, refreshOrderContext };
+  return { state, payload, error };
 }
