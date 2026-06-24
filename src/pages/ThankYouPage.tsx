@@ -1,60 +1,54 @@
 /**
  * ThankYouPage
  * -----------------------------------------------------------------------------
- * Landing page after the checkout redirects. Reads the `?token=` JWT that the
- * worker signed on success/pending, verifies it server-side, and drives a
- * state machine via `useThankYouPayment`:
+ * Landing page after checkout redirects. Reads the `?token=` JWT the worker
+ * signed on success/pending, verifies it server-side, and drives a state
+ * machine via `useThankYouPayment`:
  *
- *   - "verifying"  Amber "Processing Payment" promo banner with a spinner +
- *                  matching "Processing Your Payment" main-card copy, while
- *                  the worker verifies the token.
- *   - "pending"    Same promo banner and main-card copy as "verifying" — the
- *                  hook polls `/poll-payment` every 5s until the upstream
- *                  status flips to succeeded or failed.
- *   - "succeeded"  Forest "Order Confirmed" promo banner + "Thank You for
- *                  Your Order" main-card copy, plus order details and the
- *                  receipt sidebar.
- *   - "failed"     Single failure card (no banner, no summary) pointing the
- *                  user back to the checkout to retry.
+ *   - "verifying" / "pending"  Amber processing banner + "Processing Your
+ *     Payment" copy; the hook polls `/poll-payment` every 5s until terminal.
+ *   - "succeeded"  Forest "Order Confirmed" banner + receipt sidebar.
+ *   - "failed"     Single failure card pointing back to checkout.
  *
- * Markers:
- *   - page root            data-page="thank-you"
- *   - promo banner         data-section="promo-banner" + data-status="..."
- *   - main card            data-section="thank-you-main-card" + data-status
- *   - failure card         data-section="thank-you-failure"
+ * The receipt's line items come from the verified JWT (`payload.line_items`),
+ * falling back to the sessionStorage bundle written by `useCheckoutPayment`
+ * before a 3DS handoff, and finally to a static product summary.
  * -----------------------------------------------------------------------------
  */
 
-import { useState } from "react";
 import { useSearchParams } from "react-router";
 
 import { Icon } from "@/components/icons";
 import { PriceRow } from "@/components/checkout/primitives/PriceRow";
 import { SectionCard } from "@/components/checkout/primitives/SectionCard";
-import { useThankYouPayment } from "@/hooks/useThankYouPayment";
 import { Spinner } from "@/components/ui/spinner";
-import { UpsellOfferBanner, type UpsellProductConfig } from "@/components/thank-you/UpsellOfferBanner";
-import { UpsellCheckoutModal } from "@/components/thank-you/UpsellCheckoutModal";
+import {
+  CHECKOUT_BUNDLE_SESSION_KEY,
+  type CheckoutBundleSessionEntry,
+} from "@/hooks/useCheckoutPayment";
+import {
+  type CheckoutLineItem,
+  useThankYouPayment,
+} from "@/hooks/useThankYouPayment";
 
-// Product shown in the receipt when no order items are returned yet.
+// Static product used when neither the JWT nor sessionStorage carries items.
 const PRODUCT = {
   name: "Daily Greens Complex",
-  sku: "1234567890",
   salePrice: "$49.00",
-  image: { src: "/product-summary-image.jpeg", alt: "Daily Greens Complex product photo" },
+  image: {
+    src: "/product-summary-image.jpeg",
+    alt: "Daily Greens Complex product photo",
+  },
 };
 
-// Order summary lines shown in the receipt sidebar.
 const SUMMARY = {
   includedProductsTitle: "Included Products",
-  includedProductSuffix: "",
   shipping: { id: "shipping", label: "Shipping", value: "$7.95" },
   tax: { id: "tax", label: "Tax", value: "$0.00" },
   total: { id: "total", label: "Total", value: "$56.95" },
   currency: "USD",
 };
 
-// Thank-you page copy.
 const THANK_YOU = {
   nextSteps: { title: "What Happens Next" },
   receipt: {
@@ -63,38 +57,6 @@ const THANK_YOU = {
     backToHomeHref: "/",
     guaranteeNote: "Your 60-day return window starts from the purchase date.",
   },
-};
-
-// Optional upsell shown after a successful checkout. Set to null to disable.
-const UPSELL_PRODUCT: UpsellProductConfig | null = {
-  name: "Boomsilk®",
-  sku: "BOOMSILK-UPSELL",
-  image: { src: "/product-summary-image.jpeg", alt: "Boomsilk product photo" },
-  salePrice: "$51.20",
-  regularPrice: "$64.00",
-  discountLabel: "-20%",
-  upsellMinutes: 10,
-  amountMinor: 5120,
-  currency: "USD",
-};
-
-// Map known SKUs back to display copy + thumbnail.
-const SKU_DISPLAY: Record<
-  string,
-  { name: string; image: { src: string; alt: string } }
-> = {
-  [PRODUCT.sku]: {
-    name: PRODUCT.name,
-    image: PRODUCT.image,
-  },
-  ...(UPSELL_PRODUCT
-    ? {
-        [UPSELL_PRODUCT.sku]: {
-          name: UPSELL_PRODUCT.name,
-          image: UPSELL_PRODUCT.image,
-        },
-      }
-    : {}),
 };
 
 function formatMoney(amountMinor: number, currency: string): string {
@@ -108,32 +70,58 @@ function formatMoney(amountMinor: number, currency: string): string {
   }
 }
 
-export function ThankYouPage() {
-  const product = PRODUCT;
-  const summary = SUMMARY;
-  const thankYou = THANK_YOU;
-  const upsellProduct = UPSELL_PRODUCT;
-  const [isUpsellModalOpen, setIsUpsellModalOpen] = useState(false);
+/** Read the bundle stashed by `useCheckoutPayment` before the 3DS handoff.
+ *  Display-only fallback for when the resume token has no line items. */
+function readBundleFromSession(): CheckoutBundleSessionEntry | null {
+  if (typeof window === "undefined") return null;
+  let raw: string | null = null;
+  try {
+    raw = window.sessionStorage.getItem(CHECKOUT_BUNDLE_SESSION_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CheckoutBundleSessionEntry;
+    if (!Array.isArray(parsed.line_items)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
 
+export function ThankYouPage() {
   const [searchParams] = useSearchParams();
   const token = searchParams.get("token");
-  const orderIdHintRaw = searchParams.get("orderId");
-  const orderIdHint =
-    orderIdHintRaw && Number.isFinite(Number(orderIdHintRaw))
-      ? Number(orderIdHintRaw)
-      : null;
-  const { state, payload, context, error, refreshOrderContext } =
-    useThankYouPayment({
-      token,
-      orderIdHint,
-    });
+  const paymentIdHint = searchParams.get("paymentId");
+
+  const { state, payload, error } = useThankYouPayment({
+    token,
+    paymentIdHint,
+  });
 
   const isFailed = state === "failed";
   const isProcessing = state === "pending" || state === "verifying";
-  const orderNumber =
-    typeof payload?.order_id === "number"
-      ? `#${payload.order_id}`
-      : "#CV-302948";
+
+  // Receipt items: JWT line items first, then the sessionStorage bundle.
+  const sessionBundle = readBundleFromSession();
+  const items: CheckoutLineItem[] =
+    payload?.line_items && payload.line_items.length > 0
+      ? payload.line_items
+      : sessionBundle?.line_items ?? [];
+  const hasItems = items.length > 0;
+  const currency = payload?.currency ?? sessionBundle?.currency ?? SUMMARY.currency;
+  const itemsSubtotalMinor = items.reduce(
+    (sum, item) => sum + item.amountIncludingTax,
+    0,
+  );
+  const formattedTotal = hasItems
+    ? formatMoney(itemsSubtotalMinor, currency)
+    : SUMMARY.total.value;
+
+  const orderNumber = payload?.order_number
+    ? `#${payload.order_number}`
+    : "#CV-302948";
   const formattedDate = new Intl.DateTimeFormat("en-US", {
     month: "long",
     day: "numeric",
@@ -148,24 +136,6 @@ export function ThankYouPage() {
   const mainCardSubtitle = isProcessing
     ? "Hang tight — your payment is going through a final review. This page will update automatically as soon as it clears."
     : "Your payment was processed successfully.";
-  const includedLabel = `${product.name}${summary.includedProductSuffix ? ` ${summary.includedProductSuffix}` : ""}`;
-
-  const orderItems = context?.items ?? [];
-  const hasOrderItems = orderItems.length > 0;
-  const hasPendingLineCharges = orderItems.some((item) => item.chargePending);
-  const upsellAlreadyInOrder = Boolean(
-    context && upsellProduct &&
-      orderItems.some((item) => item.sku === upsellProduct.sku),
-  );
-  const showUpsell = Boolean(upsellProduct) && !upsellAlreadyInOrder;
-  const receiptCurrency = summary.currency || "USD";
-  const itemsSubtotalMinor = orderItems.reduce(
-    (sum, item) => sum + (item.amountMinor ?? 0),
-    0,
-  );
-  const formattedTotal = hasOrderItems
-    ? formatMoney(itemsSubtotalMinor, receiptCurrency)
-    : summary.total.value;
 
   const ctaClassName =
     "h-12 w-full rounded-md bg-forest text-bone text-[14px] font-semibold tracking-[0.04em] uppercase flex items-center justify-center gap-2 transition hover:bg-forest2 cursor-pointer";
@@ -232,22 +202,6 @@ export function ThankYouPage() {
               </section>
             )}
 
-            {showUpsell && upsellProduct && !isProcessing && (
-              <>
-                <UpsellOfferBanner
-                  upsell={upsellProduct}
-                  onClaim={() => setIsUpsellModalOpen(true)}
-                />
-                <UpsellCheckoutModal
-                  upsell={upsellProduct}
-                  context={context}
-                  open={isUpsellModalOpen}
-                  onClose={() => setIsUpsellModalOpen(false)}
-                  onReceiptRefresh={refreshOrderContext}
-                />
-              </>
-            )}
-
             <div
               data-section="thank-you-layout"
               className="grid gap-4 lg:grid-cols-[1.6fr_1fr] lg:items-start"
@@ -287,7 +241,7 @@ export function ThankYouPage() {
 
                   <section className="mt-2 rule pt-4">
                     <h3 className="text-[15px] font-semibold tracking-tight text-ink">
-                      {thankYou.nextSteps.title}
+                      {THANK_YOU.nextSteps.title}
                     </h3>
                     <div className="mt-3 space-y-3">
                       <div>
@@ -312,47 +266,32 @@ export function ThankYouPage() {
               </section>
 
               <aside data-region="thank-you-summary" className="lg:sticky lg:top-[88px] lg:h-max">
-                <SectionCard section="receipt-summary" title={thankYou.receipt.title}>
+                <SectionCard section="receipt-summary" title={THANK_YOU.receipt.title}>
                   <div
                     data-slot="included-products-list"
                     className="rounded-md border border-line bg-bone2/50 p-2.5"
                   >
-                    {hasOrderItems ? (
-                      orderItems.map((item) => {
-                        const display = SKU_DISPLAY[item.sku];
-                        const label = display?.name ?? item.description;
-                        const image = display?.image ?? product.image;
-                        const lineLabel =
-                          item.quantity > 1 ? `${label} × ${item.quantity}` : label;
-                        const rowKey = `${item.sku}-${item.chargePending ? "pending" : "confirmed"}`;
+                    {hasItems ? (
+                      items.map((item, index) => {
+                        const label =
+                          item.quantity > 1
+                            ? `${item.description} × ${item.quantity}`
+                            : item.description;
                         return (
                           <div
-                            key={rowKey}
+                            key={`${item.description}-${index}`}
                             data-slot="included-product-item"
-                            data-charge-pending={item.chargePending ? "true" : undefined}
                             className="my-[7px] flex items-center gap-2.5 text-[13px]"
                           >
                             <img
                               data-slot="included-product-thumb"
-                              src={image.src}
-                              alt={image.alt}
+                              src={PRODUCT.image.src}
+                              alt={PRODUCT.image.alt}
                               className="h-12 w-12 shrink-0 rounded-md border border-line object-cover"
                             />
-                            <span className="flex min-w-0 flex-1 flex-col gap-0.5 text-ink">
-                              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <span>{lineLabel}</span>
-                                {item.chargePending ? (
-                                  <span
-                                    data-slot="charge-pending-badge"
-                                    className="rounded-[3px] border border-amber/40 bg-amber-soft px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber2"
-                                  >
-                                    Charge pending
-                                  </span>
-                                ) : null}
-                              </span>
-                            </span>
+                            <span className="min-w-0 flex-1 text-ink">{label}</span>
                             <strong data-slot="included-product-price" className="num shrink-0 text-ink">
-                              {formatMoney(item.amountMinor, receiptCurrency)}
+                              {formatMoney(item.amountIncludingTax, currency)}
                             </strong>
                           </div>
                         );
@@ -364,13 +303,13 @@ export function ThankYouPage() {
                       >
                         <img
                           data-slot="included-product-thumb"
-                          src={product.image.src}
-                          alt={product.image.alt}
+                          src={PRODUCT.image.src}
+                          alt={PRODUCT.image.alt}
                           className="h-12 w-12 shrink-0 rounded-md border border-line object-cover"
                         />
-                        <span className="flex-1 text-ink">{includedLabel}</span>
+                        <span className="flex-1 text-ink">{PRODUCT.name}</span>
                         <strong data-slot="included-product-price" className="num text-ink">
-                          {product.salePrice}
+                          {PRODUCT.salePrice}
                         </strong>
                       </div>
                     )}
@@ -380,57 +319,53 @@ export function ThankYouPage() {
                     data-slot="included-products-title"
                     className="mt-1 text-[13px] font-bold text-forest"
                   >
-                    {summary.includedProductsTitle}
+                    {SUMMARY.includedProductsTitle}
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    {hasOrderItems
-                      ? orderItems.map((item) => {
-                          const display = SKU_DISPLAY[item.sku];
-                          const label = display?.name ?? item.description;
-                          const lineLabel =
-                            item.quantity > 1 ? `${label} × ${item.quantity}` : label;
-                          const rowKey = `${item.sku}-${item.chargePending ? "pending" : "confirmed"}`;
-                          return (
-                            <PriceRow
-                              key={rowKey}
-                              data-slot="product-line"
-                              data-charge-pending={item.chargePending ? "true" : undefined}
-                              line={{
-                                id: `item-${rowKey}`,
-                                label: item.chargePending
-                                  ? `${lineLabel} (charge pending)`
-                                  : lineLabel,
-                                value: formatMoney(item.amountMinor, receiptCurrency),
-                              }}
-                              className="my-2 text-[14px]"
-                              labelClassName="text-ink2"
-                              valueClassName="font-bold text-ink"
-                            />
-                          );
-                        })
-                      : (
+                    {hasItems ? (
+                      items.map((item, index) => {
+                        const label =
+                          item.quantity > 1
+                            ? `${item.description} × ${item.quantity}`
+                            : item.description;
+                        return (
                           <PriceRow
+                            key={`${item.description}-${index}`}
                             data-slot="product-line"
                             line={{
-                              id: "product",
-                              label: product.name,
-                              value: product.salePrice,
+                              id: `item-${index}`,
+                              label,
+                              value: formatMoney(item.amountIncludingTax, currency),
                             }}
                             className="my-2 text-[14px]"
                             labelClassName="text-ink2"
                             valueClassName="font-bold text-ink"
                           />
-                        )}
+                        );
+                      })
+                    ) : (
+                      <PriceRow
+                        data-slot="product-line"
+                        line={{
+                          id: "product",
+                          label: PRODUCT.name,
+                          value: PRODUCT.salePrice,
+                        }}
+                        className="my-2 text-[14px]"
+                        labelClassName="text-ink2"
+                        valueClassName="font-bold text-ink"
+                      />
+                    )}
                     <PriceRow
                       data-slot="shipping-line"
-                      line={summary.shipping}
+                      line={SUMMARY.shipping}
                       className="my-2 text-[14px]"
                       labelClassName="text-ink2"
                     />
                     <PriceRow
                       data-slot="tax-line"
-                      line={summary.tax}
+                      line={SUMMARY.tax}
                       className="my-2 text-[14px]"
                       labelClassName="text-ink2"
                     />
@@ -438,7 +373,7 @@ export function ThankYouPage() {
                       data-slot="total-line"
                       line={{
                         id: "total",
-                        label: summary.total.label,
+                        label: SUMMARY.total.label,
                         value: formattedTotal,
                       }}
                       className="mt-3 border-t border-line pt-3 text-[20px]"
@@ -446,22 +381,15 @@ export function ThankYouPage() {
                       valueClassName="text-[22px] font-semibold text-ink"
                     />
 
-                    {hasPendingLineCharges ? (
-                      <p data-slot="pending-charges-note" className="text-[11.5px] leading-snug text-ink3">
-                        Items marked "charge pending" are on your receipt; your saved card will be
-                        charged when your order is finalized.
-                      </p>
-                    ) : null}
-
-                    <a href={thankYou.receipt.backToHomeHref} data-slot="cta-primary" className={ctaClassName}>
-                      {thankYou.receipt.backToHomeLabel}
+                    <a href={THANK_YOU.receipt.backToHomeHref} data-slot="cta-primary" className={ctaClassName}>
+                      {THANK_YOU.receipt.backToHomeLabel}
                     </a>
 
                     <div
                       data-slot="guarantee-note"
                       className="rounded-md border border-[#b9e0be] bg-[#eff9f0] p-3 text-[12.5px] font-semibold text-forest"
                     >
-                      {thankYou.receipt.guaranteeNote}
+                      {THANK_YOU.receipt.guaranteeNote}
                     </div>
                   </div>
                 </SectionCard>
