@@ -21,7 +21,6 @@ import { SectionHead } from "@/components/checkout/form-atoms";
 import { Icon } from "@/components/icons";
 import { useCheckoutPayment } from "@/hooks/useCheckoutPayment";
 
-const PRODUCT_SKU = "1234567890";
 const PRODUCT_NAME = "Daily Greens Complex";
 const CURRENCY = "USD";
 
@@ -83,7 +82,6 @@ export function CheckoutPage() {
       shippingAddress: address,
       lineItems: [
         {
-          sku: PRODUCT_SKU,
           description: PRODUCT_NAME,
           quantity: selectedBundle.bottleCount,
           amountIncludingTax: selectedBundle.totalAmountMinor,
