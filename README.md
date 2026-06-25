@@ -1,4 +1,4 @@
-# Convesio Fulfillment Checkout V2
+# Checkout Funnel - Botanicals
 
 A production-ready **single-page application** that renders an **integrated ConvesioPay checkout**, ready to deploy on [Convesio Static Sites](https://convesio.com).
 It features native integrations with FullStack CartRover API + SendGrid API, so every 2 hours orders are synced with CartRover, and the customers are emailed through SendGrid.
