@@ -32,6 +32,17 @@ export interface CheckoutTokenPayload extends JWTPayload {
   /** Display line items. Optional — absent on 3DS-resume tokens minted from
    *  an upstream lookup, where the SPA falls back to sessionStorage. */
   line_items?: CheckoutLineItem[];
+  /** Customer + shipping details captured at `/payments` time and carried
+   *  through to the `/order-confirmed` call, so the Store Manager webhook can
+   *  be built statelessly on any success path (immediate, polled, or 3DS). All
+   *  optional — resume tokens minted purely from an upstream lookup omit them
+   *  and the webhook falls back to demo values. */
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  /** Raw shipping address in the ConvesioPay shape (`street`,
+   *  `houseNumberOrName`, `city`, `stateOrProvince`, `postalCode`, `country`). */
+  shipping_address?: Record<string, unknown>;
 }
 
 function keyFromSecret(secret: string): Uint8Array {

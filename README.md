@@ -9,7 +9,7 @@ Built with **React 19**, **TypeScript**, **Vite**, **Tailwind CSS v4** and **sha
 
 ## Table of Contents
 
-- [Convesio Fulfillment Checkout V2](#convesio-fulfillment-checkout-v2)
+- [Checkout Funnel - Botanicals](#checkout-funnel---botanicals)
   - [Table of Contents](#table-of-contents)
   - [Features](#features)
   - [How it Works](#how-it-works)

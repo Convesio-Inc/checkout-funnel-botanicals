@@ -9,6 +9,9 @@ interface Env {
   CPAY_SECRET: string;
   CPAY_INTEGRATION: string;
   CPAY_ENVIRONMENT?: ConvesioPayEnvironmentValue;
+  /** Optional. When set, a successful payment POSTs an `order.created` event
+   *  to this Store Manager campaign webhook. Unset → notification is skipped. */
+  STORE_MANAGER_CAMPAIGN_URL?: string;
 }
 
 type ConvesioPayEnvironmentValue = "test" | "live";

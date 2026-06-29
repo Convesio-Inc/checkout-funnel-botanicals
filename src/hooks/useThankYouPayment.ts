@@ -204,6 +204,13 @@ export function useThankYouPayment(
   // effect on every status change (which would leak intervals).
   const payloadRef = useRef<CheckoutTokenPayload | null>(null);
 
+  // The canonical thank-you token (the URL token, or the one minted on a 3DS
+  // resume). Forwarded to `/order-confirmed` so the worker can fire the Store
+  // Manager `order.created` notification statelessly.
+  const tokenRef = useRef<string | null>(null);
+  // Guards the fire-once `/order-confirmed` call for this page lifetime.
+  const orderConfirmedRef = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     let intervalId: ReturnType<typeof setInterval> | null = null;
@@ -213,6 +220,39 @@ export function useThankYouPayment(
         clearInterval(intervalId);
         intervalId = null;
       }
+    };
+
+    // Notify the worker (which notifies Store Manager) the first time this
+    // payment is observed as successful — on every success path: immediate,
+    // polled, or post-3DS. Best-effort and fire-once: a ref guards the page
+    // lifetime, and a sessionStorage flag keyed by payment id suppresses a
+    // re-fire across a refresh. Never blocks or affects what the user sees.
+    const confirmOrder = () => {
+      if (orderConfirmedRef.current) return;
+      orderConfirmedRef.current = true;
+
+      const token = tokenRef.current;
+      const paymentId = payloadRef.current?.payment_id;
+      if (!token || !paymentId) return;
+
+      const flagKey = `cpay_order_confirmed:${paymentId}`;
+      try {
+        if (window.sessionStorage.getItem(flagKey)) return;
+        window.sessionStorage.setItem(flagKey, "1");
+      } catch {
+        // sessionStorage unavailable — still fire once for this page lifetime.
+      }
+
+      void fetch("/order-confirmed", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ token }),
+      }).catch(() => {
+        // Notification is best-effort; the worker logs delivery failures.
+      });
     };
 
     const poll = async () => {
@@ -265,6 +305,9 @@ export function useThankYouPayment(
       const next = classify(body?.status);
       if (next === "pending") return; // keep polling
       setState(next);
+      if (next === "succeeded") {
+        confirmOrder();
+      }
       if (next === "failed") {
         setError(
           new Error(
@@ -342,15 +385,20 @@ export function useThankYouPayment(
           setState("failed");
           return;
         }
-        await resumeFromPaymentId(hint);
+        await resumeFromPaymentId(hint, tokenToVerify);
         return;
       }
 
       payloadRef.current = decoded;
       setPayload(decoded);
+      tokenRef.current = tokenToVerify;
 
       const next = classify(decoded.status);
       setState(next);
+
+      if (next === "succeeded") {
+        confirmOrder();
+      }
 
       if (next === "pending") {
         // Immediate refresh before the first 5s tick so slow-webhook cases
@@ -362,7 +410,10 @@ export function useThankYouPayment(
       }
     };
 
-    const resumeFromPaymentId = async (paymentId: string) => {
+    const resumeFromPaymentId = async (
+      paymentId: string,
+      markerToken?: string | null,
+    ) => {
       let response: Response;
       try {
         response = await fetch("/issue-token", {
@@ -371,7 +422,15 @@ export function useThankYouPayment(
             "Content-Type": "application/json",
             Accept: "application/json",
           },
-          body: JSON.stringify({ payment_id: paymentId }),
+          // Forward the marker token (when we have one) so the worker can
+          // recover the order data it carries and bake it into the minted
+          // token — keeping the eventual `/order-confirmed` payload faithful
+          // across the 3DS handoff.
+          body: JSON.stringify(
+            markerToken
+              ? { payment_id: paymentId, token: markerToken }
+              : { payment_id: paymentId },
+          ),
         });
       } catch (err) {
         if (cancelled) return;
