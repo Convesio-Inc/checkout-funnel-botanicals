@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "fulfillment-checkout-v2",
+	"name": "checkout-funnel-botanicals",
 	"main": "worker/index.ts",
 	"compatibility_date": "2026-04-22",
 	"assets": {
