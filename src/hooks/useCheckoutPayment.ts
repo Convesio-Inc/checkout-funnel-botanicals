@@ -133,7 +133,7 @@ export interface UseCheckoutPaymentResult {
   reset: () => void;
 }
 
-const SUCCESS_STATUSES = new Set(["Succeeded", "Authorized"]);
+const SUCCESS_STATUSES = new Set(["Succeeded", "Authorized", "Authorised"]);
 const PENDING_STATUSES = new Set(["Pending"]);
 
 export function useCheckoutPayment(): UseCheckoutPaymentResult {

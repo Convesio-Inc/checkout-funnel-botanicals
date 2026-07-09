@@ -87,7 +87,7 @@ function resolveEnvironment(env: Env): 'test' | 'live' {
  * `src/hooks/useCheckoutPayment.ts`. Kept duplicated here (rather than imported)
  * because the worker and SPA compile as separate bundles.
  */
-const SUCCESS_STATUSES = new Set(['Succeeded', 'Authorized']);
+const SUCCESS_STATUSES = new Set(['Succeeded', 'Authorized', 'Authorised']);
 const PENDING_STATUSES = new Set(['Pending']);
 
 interface PaymentRequestBody {
